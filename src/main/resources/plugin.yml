@@ -1,0 +1,4 @@
+name: GuildPlus
+version: '1.0'
+main: org.haemin.guildPlus.GuildPlus
+api-version: '1.20'
