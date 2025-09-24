@@ -2,270 +2,333 @@ package org.haemin.guildPlus.gui;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.haemin.guildPlus.GuildPlus;
-import org.haemin.guildPlus.buff.BuffService;
 import org.haemin.guildPlus.util.Chat;
 import org.haemin.guildPlus.util.Configs;
 import org.haemin.guildPlus.util.SoundUtil;
 
 import java.util.*;
 
-public class BuffGui implements Listener {
-    private final GuildPlus plugin;
-    public BuffGui(GuildPlus plugin) { this.plugin = plugin; }
+public final class BuffGui {
+    private static GuildPlus plugin;
+    private static boolean registered = false;
 
-    public static void openInfinite(GuildPlus plugin, Player p) { open(plugin, p, true); }
-    public static void openTemp(GuildPlus plugin, Player p) { open(plugin, p, false); }
+    public static void openInfinite(GuildPlus pl, Player p) {
+        ensure(pl);
+        String gid = pl.hook().getGuildId(p);
+        if (gid == null) { p.sendMessage(Configs.msg("no-guild")); return; }
+        Inventory inv = build(pl, p, "infinite", gid);
+        p.openInventory(inv);
+        SoundUtil.play(p, "gui.buff.open");
+    }
 
-    private static void open(GuildPlus plugin, Player p, boolean infinite) {
-        FileConfiguration g = Configs.gui();
-        String base = infinite ? "infinite" : "temp";
-        String title = Chat.color(g.getString(base + ".title", infinite ? "&8길드 버프 &7(영구)" : "&8길드 버프 &7(기간제)"));
-        int rows = Math.max(1, Math.min(6, g.getInt(base + ".rows", 6)));
-        int size = rows * 9;
+    public static void openTemp(GuildPlus pl, Player p) {
+        ensure(pl);
+        String gid = pl.hook().getGuildId(p);
+        if (gid == null) { p.sendMessage(Configs.msg("no-guild")); return; }
+        Inventory inv = build(pl, p, "temp", gid);
+        p.openInventory(inv);
+        SoundUtil.play(p, "gui.buff.open");
+    }
 
-        Map<String, Integer> layout = new LinkedHashMap<>();
-        if (g.isConfigurationSection(base + ".layout")) {
-            for (String id : g.getConfigurationSection(base + ".layout").getKeys(false)) {
-                layout.put(id, g.getInt(base + ".layout." + id));
-            }
+    private static void ensure(GuildPlus pl) {
+        if (plugin == null) plugin = pl;
+        if (!registered) {
+            Bukkit.getPluginManager().registerEvents(new Clicks(), plugin);
+            registered = true;
         }
+    }
 
-        List<BuffService.Node> nodes = new ArrayList<>(infinite
-                ? plugin.buffs().getInfiniteNodes().values()
-                : plugin.buffs().getTempNodes().values());
-
-        Inventory inv = Bukkit.createInventory(p, size, title);
-        boolean[] used = new boolean[size];
-        Map<Integer, BuffService.Node> slotMap = new HashMap<>();
-
-        for (BuffService.Node n : nodes) {
-            Integer fixed = layout.get(n.id);
-            if (fixed != null && fixed >= 0 && fixed < size && !used[fixed]) {
-                inv.setItem(fixed, buildItem(plugin, n, infinite, p));
-                used[fixed] = true;
-                slotMap.put(fixed, n);
+    private static Inventory build(GuildPlus pl, Player p, String kind, String gid) {
+        ConfigurationSection root = Configs.gui().getConfigurationSection(kind);
+        String title = Chat.color(root.getString("title", "&8Guild Buffs"));
+        int rows = Math.max(1, Math.min(6, root.getInt("rows", 6)));
+        int size = rows * 9;
+        Holder holder = new Holder(kind);
+        Inventory inv = Bukkit.createInventory(holder, size, title);
+        Map<Integer, String> placed = new HashMap<>();
+        ConfigurationSection layout = root.getConfigurationSection("layout");
+        ConfigurationSection def = root.getConfigurationSection("default");
+        ConfigurationSection items = root.getConfigurationSection("items");
+        Map<String, ConfigurationSection> nodes = loadBuffNodes(kind);
+        if (layout != null) {
+            for (String id : layout.getKeys(false)) {
+                int slot = layout.getInt(id);
+                if (slot < 0 || slot >= size) continue;
+                if (!nodes.containsKey(id)) continue;
+                inv.setItem(slot, buildItem(pl, p, kind, gid, id, nodes.get(id), def, items == null ? null : items.getConfigurationSection(id)));
+                placed.put(slot, id);
+                holder.map.put(slot, id);
             }
         }
         int cursor = 0;
-        for (BuffService.Node n : nodes) {
-            if (slotMap.containsValue(n)) continue;
-            while (cursor < size && used[cursor]) cursor++;
+        for (Map.Entry<String, ConfigurationSection> e : nodes.entrySet()) {
+            String id = e.getKey();
+            if (layout != null && layout.getKeys(false).contains(id)) continue;
+            while (cursor < size && placed.containsKey(cursor)) cursor++;
             if (cursor >= size) break;
-            inv.setItem(cursor, buildItem(plugin, n, infinite, p));
-            used[cursor] = true;
-            slotMap.put(cursor, n);
+            inv.setItem(cursor, buildItem(pl, p, kind, gid, id, e.getValue(), def, items == null ? null : items.getConfigurationSection(id)));
+            holder.map.put(cursor, id);
+            cursor++;
         }
-
-        p.setMetadata("gp_buff_slots_" + (infinite ? "inf" : "tmp"), new org.bukkit.metadata.FixedMetadataValue(plugin, slotMap));
-        p.openInventory(inv);
-        SoundUtil.play(p, g.getString(base + ".sound-open", ""));
+        return inv;
     }
 
-    @EventHandler
-    public void onClick(InventoryClickEvent e) {
-        if (!(e.getWhoClicked() instanceof Player p)) return;
-        FileConfiguration g = Configs.gui();
-        String ti = Chat.color(g.getString("infinite.title", "&8길드 버프 &7(영구)"));
-        String tt = Chat.color(g.getString("temp.title", "&8길드 버프 &7(기간제)"));
-        String title = e.getView().getTitle();
-        boolean inf = ti.equals(title);
-        boolean tmp = tt.equals(title);
-        if (!inf && !tmp) return;
-
-        e.setCancelled(true);
-        int slot = e.getRawSlot();
-        if (slot < 0 || slot >= e.getInventory().getSize()) return;
-
-        String key = "gp_buff_slots_" + (inf ? "inf" : "tmp");
-        if (!p.hasMetadata(key)) return;
-        @SuppressWarnings("unchecked")
-        Map<Integer, BuffService.Node> map = (Map<Integer, BuffService.Node>) p.getMetadata(key).get(0).value();
-        BuffService.Node n = map.get(slot);
-        if (n == null) return;
-
-        String gid = plugin.hook().getGuildId(p);
-        if (gid == null) { p.closeInventory(); p.sendMessage(Chat.color(Configs.msg("no-guild"))); return; }
-
-        if (inf) {
-            if (plugin.buffs().isInfiniteActive(gid, n.id)) return;
-            if (!plugin.buffs().canUnlockInfinite(gid, n.id)) { p.sendMessage(Chat.color(Configs.msg("require-fail"))); return; }
-            plugin.buffs().unlockInfinite(gid, n.id);
-            SoundUtil.play(p, g.getString("infinite.sound-click", ""));
-            p.sendMessage(Chat.color(Configs.msg("infinite-unlocked").replace("{name}", n.name)));
-            openInfinite(plugin, p);
-            return;
+    private static Map<String, ConfigurationSection> loadBuffNodes(String kind) {
+        Map<String, ConfigurationSection> out = new LinkedHashMap<>();
+        ConfigurationSection parent = null;
+        if (Configs.buffs().isConfigurationSection(kind + ".nodes")) parent = Configs.buffs().getConfigurationSection(kind + ".nodes");
+        else if (Configs.buffs().isConfigurationSection(kind)) parent = Configs.buffs().getConfigurationSection(kind);
+        if (parent == null) return out;
+        for (String id : parent.getKeys(false)) {
+            ConfigurationSection c = parent.getConfigurationSection(id);
+            if (c != null) out.put(id, c);
         }
-
-        if (e.getClick() == ClickType.RIGHT) {
-            if (!plugin.buffs().isTempActive(gid, n.id)) return;
-            plugin.buffs().deactivateTemp(gid, n.id);
-            SoundUtil.play(p, g.getString("temp.sound-click", ""));
-            p.sendMessage(Chat.color(Configs.msg("temp-removed")));
-            openTemp(plugin, p);
-            return;
-        }
-
-        BuffService.TempBlock chk = plugin.buffs().checkTempActivate(gid, n.id);
-        if (chk == BuffService.TempBlock.LIMIT) {
-            p.sendMessage(Chat.color(Configs.msg("temp-limit-reached")
-                    .replace("{max}", String.valueOf(Configs.cfg().getInt("temp.max-active-per-guild", 99)))));
-            return;
-        }
-        if (chk == BuffService.TempBlock.REQUIREMENTS) {
-            p.sendMessage(Chat.color(Configs.msg("require-fail")));
-            return;
-        }
-        double cost = n.cost;
-        if (cost > 0 && plugin.econ().isReady()) {
-            if (!plugin.econ().has(p, cost)) { p.sendMessage(Chat.color(Configs.msg("need-money").replace("{cost}", String.valueOf(cost)))); return; }
-            if (!plugin.econ().withdraw(p, cost)) { p.sendMessage(Chat.color(Configs.msg("withdraw-failed"))); return; }
-        }
-        plugin.buffs().activateTemp(gid, n.id);
-        SoundUtil.play(p, g.getString("temp.sound-click", ""));
-        p.sendMessage(Chat.color(Configs.msg("temp-activated").replace("{name}", n.name)));
-        openTemp(plugin, p);
+        return out;
     }
 
-    private static ItemStack buildItem(GuildPlus plugin, BuffService.Node n, boolean infinite, Player p) {
-        boolean unlocked = infinite ? plugin.buffs().isInfiniteActive(plugin.hook().getGuildId(p), n.id)
-                : plugin.buffs().isTempActive(plugin.hook().getGuildId(p), n.id);
-        String state = infinite ? (unlocked ? "&a해금됨" : "&c미해금")
-                : (unlocked ? "&a활성" : "&c비활성");
-
-        FileConfiguration g = Configs.gui();
-        String base = infinite ? "infinite" : "temp";
-        ConfigurationSection def = g.getConfigurationSection(base + ".default");
-        ConfigurationSection items = g.getConfigurationSection(base + ".items");
-        String idPath = items != null && items.isConfigurationSection(n.id) ? base + ".items." + n.id : null;
-
-        Material mat = mat(firstNonNull(
-                g.getString((idPath != null ? idPath + "." : "") + "material-" + (unlocked ? "unlocked" : "locked")),
-                g.getString((idPath != null ? idPath + "." : "") + "material"),
-                def != null ? def.getString("material-" + (unlocked ? "unlocked" : "locked")) : null,
-                def != null ? def.getString("material") : null,
-                infinite ? "NETHER_STAR" : "CLOCK"
-        ));
-
-        Integer cmd = firstNonNull(
-                intObj(g.getString((idPath != null ? idPath + "." : "") + "custom-model-data-" + (unlocked ? "unlocked" : "locked"))),
-                intObj(g.getString((idPath != null ? idPath + "." : "") + "custom-model-data")),
-                def != null ? intObj(def.getString("custom-model-data-" + (unlocked ? "unlocked" : "locked"))) : null,
-                def != null ? intObj(def.getString("custom-model-data")) : null
-        );
-
-        String name = firstNonNull(
-                g.getString((idPath != null ? idPath + "." : "") + "name-" + (unlocked ? "unlocked" : "locked")),
-                g.getString((idPath != null ? idPath + "." : "") + "name"),
-                def != null ? def.getString("name-" + (unlocked ? "unlocked" : "locked")) : null,
-                def != null ? def.getString("name") : null,
-                "{name}"
-        );
-
-        List<String> lore = firstListNonEmpty(
-                g.getStringList((idPath != null ? idPath + "." : "") + "lore-" + (unlocked ? "unlocked" : "locked")),
-                g.getStringList((idPath != null ? idPath + "." : "") + "lore"),
-                def != null ? def.getStringList("lore-" + (unlocked ? "unlocked" : "locked")) : Collections.emptyList(),
-                def != null ? def.getStringList("lore") : Collections.emptyList()
-        );
-
-        ItemStack it = new ItemStack(mat);
-        ItemMeta m = it.getItemMeta();
-        m.setDisplayName(Chat.color(applyPlaceholders(name, n, state)));
-        List<String> outLore = new ArrayList<>();
-        for (String line : lore) outLore.add(Chat.color(applyPlaceholders(line, n, state)));
-        String req = requiresText(plugin, n);
-        if (!req.isEmpty()) {
-            outLore.add(Chat.color("&8────────────────"));
-            outLore.add(Chat.color("&7요구: &f" + req));
+    private static ItemStack buildItem(GuildPlus pl, Player p, String kind, String gid, String id, ConfigurationSection node, ConfigurationSection def, ConfigurationSection override) {
+        String nameRaw = pick(def, override, "name");
+        String nameLocked = pick(def, override, "name-locked");
+        String nameUnlocked = pick(def, override, "name-unlocked");
+        List<String> loreBase = list(def, override, "lore");
+        List<String> loreLocked = list(def, override, "lore-locked");
+        List<String> loreUnlocked = list(def, override, "lore-unlocked");
+        String mat = pick(def, override, "material");
+        int cmd = num(def, override, "custom-model-data");
+        boolean infinite = kind.equalsIgnoreCase("infinite");
+        boolean activeInf = infinite && pl.buffs().isInfiniteActive(gid, id);
+        boolean activeTmp = !infinite && pl.buffs().isTempActive(gid, id);
+        boolean unlocked = infinite ? activeInf : activeTmp;
+        String statsStr = formatStats(node.getConfigurationSection("stats"));
+        long remain = !infinite ? pl.buffs().tempRemainMillis(gid, id) : 0L;
+        String duration = !infinite ? formatDuration(node) : "";
+        String costStr = !infinite ? formatCost(node) : "";
+        State state = computeState(pl, p, kind, gid, id, node);
+        String stateStr = state.display;
+        String displayName = nameRaw;
+        if (state.locked) {
+            if (nameLocked != null && !nameLocked.isEmpty()) displayName = nameLocked;
+        } else {
+            if (nameUnlocked != null && !nameUnlocked.isEmpty()) displayName = nameUnlocked;
         }
-        m.setLore(outLore);
-        if (cmd != null) {
-            try { m.setCustomModelData(cmd); } catch (Throwable ignored) {}
+        Map<String,String> vars = new HashMap<>();
+        vars.put("name", node.getString("name", id));
+        vars.put("id", id);
+        vars.put("stats", statsStr);
+        vars.put("state", stateStr);
+        vars.put("duration", !infinite ? millisToKorean(remain > 0 ? remain : node.getLong("duration-seconds", node.getLong("duration", 0)) * 1000L) : "");
+        vars.put("cost", costStr);
+        ItemStack is = new ItemStack(asMat(mat));
+        ItemMeta im = is.getItemMeta();
+        if (cmd > 0) im.setCustomModelData(cmd);
+        im.setDisplayName(Chat.color(apply(displayName, vars)));
+        List<String> lore = new ArrayList<>();
+        for (String l : loreBase) lore.add(Chat.color(apply(l, vars)));
+        if (state.locked) for (String l : loreLocked) lore.add(Chat.color(apply(l, vars)));
+        else for (String l : loreUnlocked) lore.add(Chat.color(apply(l, vars)));
+        List<String> reqLines = requireLines(pl, gid, node);
+        if (!reqLines.isEmpty()) {
+            lore.addAll(reqLines);
         }
-        it.setItemMeta(m);
-        return it;
+        im.setLore(lore);
+        im.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE, ItemFlag.HIDE_ENCHANTS, ItemFlag.HIDE_UNBREAKABLE);
+        is.setItemMeta(im);
+        return is;
     }
 
-    private static String requiresText(GuildPlus plugin, BuffService.Node n) {
-        if (n.requires == null || n.requires.isEmpty()) return "";
+    private static Material asMat(String s) {
+        if (s == null) return Material.PAPER;
+        try { return Material.valueOf(s.toUpperCase(Locale.ROOT)); } catch (Throwable ignored) { return Material.PAPER; }
+    }
+
+    private static String pick(ConfigurationSection def, ConfigurationSection over, String key) {
+        if (over != null && over.getString(key) != null) return over.getString(key);
+        return def == null ? null : def.getString(key);
+    }
+
+    private static int num(ConfigurationSection def, ConfigurationSection over, String key) {
+        if (over != null && over.isInt(key)) return over.getInt(key);
+        return def != null ? def.getInt(key, 0) : 0;
+    }
+
+    private static List<String> list(ConfigurationSection def, ConfigurationSection over, String key) {
+        List<String> a = over != null && over.isList(key) ? over.getStringList(key) : Collections.emptyList();
+        List<String> b = def != null && def.isList(key) ? def.getStringList(key) : Collections.emptyList();
+        if (!a.isEmpty()) return a;
+        return b;
+    }
+
+    private static String apply(String s, Map<String,String> vars) {
+        if (s == null) return "";
+        String out = s;
+        for (Map.Entry<String,String> e : vars.entrySet()) out = out.replace("{"+e.getKey()+"}", e.getValue());
+        return out;
+    }
+
+    private static String formatStats(ConfigurationSection stats) {
+        if (stats == null) return "-";
         List<String> parts = new ArrayList<>();
-        for (String raw : n.requires) {
-            if (raw == null || raw.isEmpty()) continue;
-            String s = raw.toLowerCase(Locale.ROOT).replace(" ", "");
-            if (s.startsWith("members>=") || s.startsWith("guild-members>=") || s.startsWith("membercount>=")) {
-                String num = s.substring(s.indexOf(">=") + 2);
-                parts.add("길드 최소 인원 " + num + "명");
-                continue;
-            }
-            String id = s;
-            if (id.startsWith("infinite:")) id = id.substring("infinite:".length());
-            if (id.startsWith("temp:")) id = id.substring("temp:".length());
-            String name = resolveBuffName(plugin, id);
-            if (!name.equals(id)) parts.add("버프 " + name);
-            else parts.add(raw);
-        }
-        return String.join("&7, &f", parts);
-    }
-
-    private static String resolveBuffName(GuildPlus plugin, String id) {
-        BuffService.Node n = plugin.buffs().getInfiniteNodes().get(id);
-        if (n != null) return n.name;
-        n = plugin.buffs().getTempNodes().get(id);
-        if (n != null) return n.name;
-        return id;
-    }
-
-    private static String applyPlaceholders(String line, BuffService.Node n, String stateText) {
-        String remain = formatRemain(n.durationMillis);
-        String stats = statLine(n.stats);
-        return line.replace("{name}", n.name)
-                .replace("{stats}", stats)
-                .replace("{state}", stateText)
-                .replace("{duration}", remain)
-                .replace("{cost}", n.cost <= 0 ? "0" : String.valueOf(n.cost));
-    }
-
-    private static String statLine(Map<String, Double> m) {
-        List<String> parts = new ArrayList<>();
-        for (Map.Entry<String, Double> e : m.entrySet()) {
-            double v = e.getValue() == null ? 0D : e.getValue();
-            String vs = (Math.floor(v) == v) ? String.valueOf((long) v) : String.valueOf(v);
-            parts.add(e.getKey() + "+" + vs);
+        for (String k : stats.getKeys(false)) {
+            double v = stats.getDouble(k, 0D);
+            String sign = v >= 0 ? "+" : "";
+            parts.add(k.toUpperCase(Locale.ROOT) + " " + sign + (v % 1 == 0 ? String.valueOf((long)v) : String.valueOf(v)));
         }
         return String.join(", ", parts);
     }
 
-    private static String formatRemain(long ms) {
-        long s = ms / 1000;
-        long h = s / 3600; long m = (s % 3600) / 60; long sec = s % 60;
-        if (h > 0) return h+"시간 "+m+"분 "+sec+"초";
-        if (m > 0) return m+"분 "+sec+"초";
-        return sec+"초";
+    private static List<String> requireLines(GuildPlus pl, String gid, ConfigurationSection node) {
+        List<String> out = new ArrayList<>();
+        int minMembers = node.getInt("min-members", 0);
+        if (minMembers > 0) {
+            int cur = pl.hook().countMembers(gid);
+            String c = cur >= minMembers ? "&a" : "&c";
+            out.add(Chat.color("&8• &7최소 인원: " + c + cur + "&7/&f" + minMembers));
+        }
+        List<String> req = node.getStringList("requires");
+        if (req != null && !req.isEmpty()) {
+            for (String dep : req) {
+                String nm = resolveBuffName(dep);
+                boolean ok = pl.buffs().isInfiniteActive(gid, dep) || pl.buffs().isTempActive(gid, dep);
+                String c = ok ? "&a" : "&c";
+                out.add(Chat.color("&8• &7필요: " + c + nm));
+            }
+        }
+        return out;
     }
 
-    private static void play(Player p, String soundKey) {
-        if (soundKey == null || soundKey.isEmpty()) return;
-        try { p.playSound(p.getLocation(), Sound.valueOf(soundKey.toUpperCase()), 1f, 1f); } catch (Exception ignored) {}
+    private static String resolveBuffName(String id) {
+        ConfigurationSection s = null;
+        if (Configs.buffs().isConfigurationSection("infinite.nodes."+id)) s = Configs.buffs().getConfigurationSection("infinite.nodes."+id);
+        else if (Configs.buffs().isConfigurationSection("infinite."+id)) s = Configs.buffs().getConfigurationSection("infinite."+id);
+        if (s == null) {
+            if (Configs.buffs().isConfigurationSection("temp.nodes."+id)) s = Configs.buffs().getConfigurationSection("temp.nodes."+id);
+            else if (Configs.buffs().isConfigurationSection("temp."+id)) s = Configs.buffs().getConfigurationSection("temp."+id);
+        }
+        if (s == null) return id;
+        return s.getString("name", id);
     }
 
-    private static Material mat(String s) {
-        Material m = s == null ? null : Material.matchMaterial(s);
-        return m != null ? m : Material.BARRIER;
+    private static State computeState(GuildPlus pl, Player p, String kind, String gid, String id, ConfigurationSection node) {
+        boolean infinite = kind.equalsIgnoreCase("infinite");
+        if (infinite) {
+            if (pl.buffs().isInfiniteActive(gid, id)) return new State(false, Configs.msg("buff-state-unlocked"));
+            int minMembers = node.getInt("min-members", 0);
+            if (minMembers > 0 && pl.hook().countMembers(gid) < minMembers) return new State(true, Configs.msg("buff-state-locked-require"));
+            List<String> req = node.getStringList("requires");
+            if (req != null) {
+                for (String dep : req) if (!pl.buffs().isInfiniteActive(gid, dep)) return new State(true, Configs.msg("buff-state-locked-require"));
+            }
+            return new State(true, Configs.msg("buff-state-locked"));
+        } else {
+            if (pl.buffs().isTempActive(gid, id)) {
+                long remain = pl.buffs().tempRemainMillis(gid, id);
+                return new State(false, Configs.msg("buff-state-temp-active", Collections.singletonMap("time", millisToKorean(remain))));
+            }
+            int maxAct = Configs.cfg().getInt("temp.max-active", 3);
+            if (pl.buffs().activeTempCount(gid) >= maxAct) return new State(true, Configs.msg("buff-state-temp-max"));
+            int minMembers = node.getInt("min-members", 0);
+            if (minMembers > 0 && pl.hook().countMembers(gid) < minMembers) return new State(true, Configs.msg("buff-state-locked-require"));
+            List<String> req = node.getStringList("requires");
+            if (req != null) for (String dep : req) if (!pl.buffs().isInfiniteActive(gid, dep)) return new State(true, Configs.msg("buff-state-locked-require"));
+            return new State(true, Configs.msg("buff-state-temp-ready"));
+        }
     }
 
-    private static <T> T firstNonNull(T... arr) { for (T t : arr) if (t != null) return t; return null; }
-    private static Integer intObj(String s) { if (s == null) return null; try { return Integer.parseInt(s); } catch (Exception e) { return null; } }
-    @SafeVarargs private static List<String> firstListNonEmpty(List<String>... lists) { for (List<String> l : lists) if (l != null && !l.isEmpty()) return l; return Collections.emptyList(); }
+    private static String formatDuration(ConfigurationSection node) {
+        long ms = Math.max(0L, node.getLong("duration-seconds", node.getLong("duration", 0L))) * 1000L;
+        return millisToKorean(ms);
+    }
+
+    private static String formatCost(ConfigurationSection node) {
+        double cost = node.getDouble("cost", 0D);
+        if (cost <= 0) return "무료";
+        return String.format(Locale.ROOT, "%.0f", cost);
+    }
+
+    private static String millisToKorean(long ms) {
+        if (ms <= 0) return "0초";
+        long s = ms / 1000L;
+        long h = s / 3600L;
+        long m = (s % 3600L) / 60L;
+        long ss = s % 60L;
+        StringBuilder sb = new StringBuilder();
+        if (h > 0) sb.append(h).append("시간 ");
+        if (m > 0) sb.append(m).append("분 ");
+        if (ss > 0 || sb.length() == 0) sb.append(ss).append("초");
+        return sb.toString().trim();
+    }
+
+    private static final class Holder implements InventoryHolder {
+        final String kind;
+        final Map<Integer,String> map = new HashMap<>();
+        Holder(String k) { this.kind = k; }
+        @Override public Inventory getInventory() { return null; }
+    }
+
+    private static final class Clicks implements Listener {
+        @EventHandler
+        public void onClick(InventoryClickEvent e) {
+            HumanEntity he = e.getWhoClicked();
+            if (!(he instanceof Player)) return;
+            if (!(e.getInventory().getHolder() instanceof Holder)) return;
+            Holder h = (Holder) e.getInventory().getHolder();
+            e.setCancelled(true);
+            String id = h.map.getOrDefault(e.getRawSlot(), null);
+            if (id == null) return;
+            Player p = (Player) he;
+            String gid = plugin.hook().getGuildId(p);
+            if (gid == null) { p.closeInventory(); p.sendMessage(Configs.msg("no-guild")); SoundUtil.play(p, "gui.buff.fail"); return; }
+            ClickType ct = e.getClick();
+            boolean infinite = h.kind.equalsIgnoreCase("infinite");
+            if (infinite) {
+                boolean ok = plugin.buffs().unlockInfinite(p, id);
+                if (ok) {
+                    SoundUtil.play(p, "gui.buff.click");
+                    SoundUtil.play(p, "buff.unlock");
+                    Bukkit.getScheduler().runTask(plugin, () -> openInfinite(plugin, p));
+                } else {
+                    SoundUtil.play(p, "gui.buff.fail");
+                }
+                return;
+            }
+            if (ct.isRightClick()) {
+                boolean ok = plugin.buffs().deactivateTemp(p, id);
+                if (ok) {
+                    SoundUtil.play(p, "gui.buff.click");
+                    SoundUtil.play(p, "buff.deactivate");
+                    Bukkit.getScheduler().runTask(plugin, () -> openTemp(plugin, p));
+                } else {
+                    SoundUtil.play(p, "gui.buff.fail");
+                }
+            } else {
+                boolean ok = plugin.buffs().activateTemp(p, id);
+                if (ok) {
+                    SoundUtil.play(p, "gui.buff.click");
+                    SoundUtil.play(p, "buff.activate");
+                    Bukkit.getScheduler().runTask(plugin, () -> openTemp(plugin, p));
+                } else {
+                    SoundUtil.play(p, "gui.buff.fail");
+                }
+            }
+        }
+    }
+
+    private static final class State {
+        final boolean locked;
+        final String display;
+        State(boolean l, String d) { this.locked = l; this.display = d; }
+    }
 }
