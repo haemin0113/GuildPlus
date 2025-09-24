@@ -1,0 +1,11 @@
+buff:
+  activate: "UI_TOAST_CHALLENGE_COMPLETE"
+  deactivate: "ENTITY_EXPERIENCE_ORB_PICKUP"
+  unlock: "UI_BUTTON_CLICK"
+  fail: "BLOCK_ANVIL_LAND"
+
+chest:
+  open: "BLOCK_CHEST_OPEN"
+  unlock: "UI_BUTTON_CLICK"
+  expand: "BLOCK_PISTON_EXTEND"
+  deny: "BLOCK_ANVIL_LAND"

@@ -1,0 +1,29 @@
+prefix: "&8[&bGuildPlus&8]&r "
+
+reloaded: "{prefix}&a설정이 리로드되었습니다."
+no-guild: "{prefix}&c길드에 가입되어 있지 않습니다."
+require-fail: "{prefix}&c요구 조건을 충족하지 않습니다."
+need-money: "{prefix}&c필요한 금액이 부족합니다. &7(필요: &f{cost}&7)"
+withdraw-failed: "{prefix}&c경제 처리에 실패했습니다. 잠시 후 다시 시도하세요."
+
+# 버프
+buff-applied: "{prefix}&a버프 적용: &f{name}"
+temp-limit-reached: "{prefix}&c활성 가능한 최대 개수({max})에 도달했습니다."
+temp-activated: "{prefix}&a버프 활성화: &f{name}"
+temp-removed: "{prefix}&e버프가 제거되었습니다."
+infinite-unlocked: "{prefix}&a해금: &f{name}"
+already-unlocked: "{prefix}&e이미 해금된 버프입니다."
+infinite-active: "{prefix}&e이미 해금된 영구 버프입니다."
+click-unlock: "{prefix}&7좌클릭하여 해금할 수 있습니다."
+
+# 디스플레이
+display-temp-title: "&b활성 임시 버프"
+display-temp-line: "&f{index}. &b{name} &7- &f{remain}"
+display-none: "&7활성화된 임시 버프가 없습니다."
+
+# 창고
+chest-locked: "{prefix}&c이 페이지는 잠겨 있어 열 수 없습니다."
+chest-unlocked-page: "{prefix}&a{page}번 창고가 해금되었습니다."
+chest-unlock-page-need-money: "{prefix}&c해금을 위해 금액이 필요합니다: &f{cost}"
+chest-expand-need-money: "{prefix}&c행 확장을 위해 금액이 필요합니다: &f{cost}"
+chest-expanded-rows: "{prefix}&a창고 줄 수가 &f{rows}&a줄로 확장되었습니다."

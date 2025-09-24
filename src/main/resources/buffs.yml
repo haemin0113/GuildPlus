@@ -1,0 +1,98 @@
+# GuildPlus - Buffs configuration (MythicLib Stat 전용)
+# - infinite: 영구 해금 트리
+# - temp: 기간제 버프
+# - 모든 스탯 키는 MythicLib Stat ID를 사용하세요. 예) MAX_HEALTH, ATTACK_DAMAGE, PVE_DAMAGE …
+
+infinite:
+  nodes:
+
+    hp1:
+      name: "&a대체력 I"
+      stats:
+        MAX_HEALTH: 2
+      requires: []
+      conditions:
+        members-min: 0
+
+    hp2:
+      name: "&a대체력 II"
+      stats:
+        MAX_HEALTH: 4
+      requires: ["hp1"]
+      conditions:
+        members-min: 5
+
+    atk1:
+      name: "&c공격력 I"
+      stats:
+        ATTACK_DAMAGE: 3
+      requires: []
+      conditions:
+        members-min: 0
+
+    atk2:
+      name: "&c공격력 II"
+      stats:
+        ATTACK_DAMAGE: 6
+      requires: ["atk1"]
+      conditions:
+        members-min: 5
+
+    crit1:
+      name: "&6치명타 확률 I"
+      stats:
+        CRITICAL_STRIKE_CHANCE: 5
+      requires: ["atk1"]
+      conditions:
+        members-min: 3
+
+    guard1:
+      name: "&b방어 I"
+      stats:
+        DAMAGE_REDUCTION: 2
+      requires: []
+      conditions:
+        members-min: 0
+
+temp:
+  nodes:
+
+    fury1:
+      name: "&c광분 I"
+      stats:
+        PVE_DAMAGE: 15
+      duration: "30m"
+      cost: 500
+      requires: ["atk1"]
+      conditions:
+        members-min: 3
+
+    haste1:
+      name: "&e가속 I"
+      stats:
+        ATTACK_SPEED: 10
+      duration: "20m"
+      cost: 400
+      requires: []
+      conditions:
+        members-min: 0
+
+    shield1:
+      name: "&b수호 I"
+      stats:
+        DAMAGE_REDUCTION: 5
+      duration: "15m"
+      cost: 450
+      requires: ["guard1"]
+      conditions:
+        members-min: 3
+
+    duel1:
+      name: "&d결투자 I"
+      stats:
+        PVP_DAMAGE: 10
+      duration: "20m"
+      cost: 600
+      requires: ["atk1"]
+      conditions:
+        members-min: 2

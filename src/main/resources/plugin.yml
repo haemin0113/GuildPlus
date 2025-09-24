@@ -1,4 +1,21 @@
 name: GuildPlus
-version: '1.0'
 main: org.haemin.guildPlus.GuildPlus
+version: 1.0.0
 api-version: '1.20'
+authors: [haemin]
+
+depend:
+  - MythicLib
+softdepend:
+  - MMOCore
+  - Vault
+  - PlaceholderAPI
+
+commands:
+  guildplus:
+    description: GuildPlus root command
+    usage: /guildplus
+    aliases: [gp, gplus]
+
+permissions:
+  guildplus.admin: { default: op }

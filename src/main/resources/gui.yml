@@ -1,0 +1,99 @@
+# GuildPlus - GUI configuration
+# 슬롯은 0~53(6줄 기준). layout 에 정의되지 않은 노드는 자동으로 빈칸에 채워집니다.
+
+infinite:
+  title: "&8길드 버프 &7(영구)"
+  rows: 6
+
+  layout:
+    hp1: 10
+    hp2: 19
+    atk1: 12
+    atk2: 21
+    crit1: 14
+    guard1: 28
+
+  # 공통 디폴트 외형 (무상태 공통 + locked/unlocked 변형 지원)
+  default:
+    material: "NETHER_STAR"
+    custom-model-data: 0
+    name: "&#F8D66D{name}"
+    name-locked: "&#F8D66D{name}"
+    name-unlocked: "&#F8D66D{name}"
+    lore:
+      - "&7효과: {stats}"
+      - "&7상태: {state}"
+      - "&8좌클릭: 해금 시도"
+      - "&8요구 조건은 아래에 자동 표기됨"
+    lore-locked: []
+    lore-unlocked: []
+
+  # 개별 노드 외형 덮어쓰기(선택) – locked/unlocked도 개별 지정 가능
+  items:
+    hp1:
+      material: "RED_DYE"
+    hp2:
+      material: "REDSTONE"
+    atk1:
+      material: "IRON_SWORD"
+    atk2:
+      material: "DIAMOND_SWORD"
+    crit1:
+      material: "ENDER_PEARL"
+    guard1:
+      material: "SHIELD"
+
+temp:
+  title: "&8길드 버프 &7(기간제)"
+  rows: 6
+
+  layout:
+    fury1: 10
+    haste1: 12
+    shield1: 14
+    duel1: 16
+
+  default:
+    material: "CLOCK"
+    custom-model-data: 0
+    name: "&#9FE6FF{name}"
+    name-locked: "&#9FE6FF{name}"
+    name-unlocked: "&#9FE6FF{name}"
+    lore:
+      - "&7효과: {stats}"
+      - "&7지속: &f{duration}"
+      - "&7비용: &f{cost}"
+      - "&7상태: {state}"
+      - "&8좌클릭: 활성화 &7/ &8우클릭: 즉시 제거"
+      - "&8요구 조건은 아래에 자동 표기됨"
+    lore-locked: []
+    lore-unlocked: []
+
+  items:
+    fury1:
+      material: "BLAZE_POWDER"
+    haste1:
+      material: "SUGAR"
+    shield1:
+      material: "TURTLE_HELMET"
+    duel1:
+      material: "GOLDEN_SWORD"
+
+chest:
+  selector:
+    title: "&8길드 창고 선택"
+    size: 9
+    item-unlocked:
+      material: "CHEST"
+      name: "&a{PAGE}번 창고"
+      lore:
+        - "&7좌클릭: 열기"
+        - "&7쉬프트+좌클릭: 행 확장"
+    item-locked:
+      material: "BARREL"
+      name: "&c{PAGE}번 창고"
+      lore:
+        - "&7잠김"
+        - "&7우클릭: 해금 &f({COST})"
+    sound-open: "UI_BUTTON_CLICK"
+    sound-click: "UI_BUTTON_CLICK"

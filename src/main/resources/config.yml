@@ -1,0 +1,27 @@
+debug: true
+
+compat:
+  attribute-fallback: false   # MythicLib 주입이 모두 실패하면 Bukkit Attribute로 보정 (기본 켜짐)
+
+display:
+  mode: "scoreboard"   # scoreboard | actionbar | bossbar
+  refresh-ticks: 20
+  scoreboard:
+    title: "&b활성 임시 버프"
+  actionbar:
+    format: "&b{list}"
+  bossbar:
+    title: "&b{list}"
+    color: "BLUE"
+    style: "SOLID"
+
+temp:
+  max-active-per-guild: 3
+
+chest:
+  cost:
+    unlock-page: 5000.0
+    expand-rows: 1000.0
+
+economy:
+  enabled: true
