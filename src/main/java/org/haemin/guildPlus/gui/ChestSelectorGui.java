@@ -2,159 +2,138 @@ package org.haemin.guildPlus.gui;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.Sound;
-import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.haemin.guildPlus.GuildPlus;
-import org.haemin.guildPlus.chest.ChestService;
 import org.haemin.guildPlus.util.Chat;
 import org.haemin.guildPlus.util.Configs;
 import org.haemin.guildPlus.util.SoundUtil;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-public class ChestSelectorGui implements Listener {
-    private final GuildPlus plugin;
-    private final ChestService chests;
+public final class ChestSelectorGui {
+    private static GuildPlus plugin;
+    private static boolean registered = false;
 
-    public ChestSelectorGui(GuildPlus plugin, ChestService chests) {
-        this.plugin = plugin; this.chests = chests;
-    }
-
-    public void open(Player p) {
-        FileConfiguration g = Configs.gui();
-        String gid = plugin.hook().getGuildId(p);
-        if (gid == null) { p.sendMessage(Chat.color(Configs.msg("no-guild"))); return; }
-
-        String title = Chat.color(g.getString("chest.selector.title", "&8길드 창고 선택"));
-        int size = Math.max(9, Math.min(54, g.getInt("chest.selector.size", 9)));
-
-        Material mUnlocked = mat(g.getString("chest.selector.item-unlocked.material", "CHEST"));
-        String nUnlocked = g.getString("chest.selector.item-unlocked.name", "&a{PAGE}번 창고");
-        List<String> lUnlocked = g.getStringList("chest.selector.item-unlocked.lore");
-
-        Material mLocked = mat(g.getString("chest.selector.item-locked.material", "BARREL"));
-        String nLocked = g.getString("chest.selector.item-locked.name", "&c{PAGE}번 창고");
-        List<String> lLocked = g.getStringList("chest.selector.item-locked.lore");
-
-        Inventory inv = Bukkit.createInventory(p, size, title);
-        for (int i = 1; i <= 9 && i <= size; i++) {
-            boolean unlocked = chests.getOrCreate(gid).isUnlocked(i);
-            Material mat = unlocked ? mUnlocked : mLocked;
-            String name = Chat.color((unlocked ? nUnlocked : nLocked).replace("{PAGE}", String.valueOf(i)));
-            List<String> loreSrc = unlocked ? lUnlocked : lLocked;
-            List<String> lore = new ArrayList<>();
-            if (loreSrc.isEmpty()) {
-                if (unlocked) {
-                    lore.add(Chat.color("&7좌클릭: 열기"));
-                    lore.add(Chat.color("&7쉬프트+좌클릭: 행 확장"));
-                } else {
-                    double cost = Configs.cfg().getDouble("chest.cost.unlock-page", 0D);
-                    lore.add(Chat.color("&7잠김"));
-                    lore.add(Chat.color("&7우클릭: 해금 &f(" + cost + ")"));
-                }
-            } else {
-                for (String line : loreSrc) {
-                    double cost = Configs.cfg().getDouble("chest.cost.unlock-page", 0D);
-                    lore.add(Chat.color(line.replace("{PAGE}", String.valueOf(i)).replace("{COST}", String.valueOf(cost))));
-                }
-            }
-            ItemStack it = new ItemStack(mat);
-            ItemMeta m = it.getItemMeta();
-            m.setDisplayName(name);
-            m.setLore(lore);
-            it.setItemMeta(m);
-            inv.setItem(i - 1, it);
+    public static void open(GuildPlus pl, Player p) {
+        ensure(pl);
+        String gid = pl.hook().getGuildId(p);
+        if (gid == null) { p.sendMessage(Configs.msg("no-guild")); return; }
+        ConfigurationSection sel = Configs.gui().getConfigurationSection("chest.selector");
+        String title = Chat.color(sel.getString("title","&8길드 창고 선택"));
+        int size = Math.max(9, Math.min(54, sel.getInt("size", 9)));
+        Holder holder = new Holder();
+        Inventory inv = Bukkit.createInventory(holder, size, title);
+        ConfigurationSection unlocked = sel.getConfigurationSection("item-unlocked");
+        ConfigurationSection locked = sel.getConfigurationSection("item-locked");
+        double unlockCost = Configs.cfg().getDouble("chest.cost.unlock-page", 0D);
+        for (int page = 1; page <= 9 && page <= size; page++) {
+            int slot = page - 1;
+            boolean isUnlocked = plugin.chest().isPageUnlocked(gid, page);
+            ItemStack it = isUnlocked ? make(unlocked, page, unlockCost) : make(locked, page, unlockCost);
+            inv.setItem(slot, it);
+            holder.pages.put(slot, page);
         }
         p.openInventory(inv);
-        play(p, g.getString("chest.selector.sound-open", ""));
+        SoundUtil.play(p, "gui.chest.open");
     }
 
-    @EventHandler
-    public void onClick(InventoryClickEvent e) {
-        if (!(e.getWhoClicked() instanceof Player p)) return;
-        FileConfiguration g = Configs.gui();
-        String title = Chat.color(g.getString("chest.selector.title", "&8길드 창고 선택"));
-        if (!title.equals(e.getView().getTitle())) return;
-
-        e.setCancelled(true);
-        String gid = plugin.hook().getGuildId(p);
-        if (gid == null) { p.closeInventory(); p.sendMessage(Chat.color(Configs.msg("no-guild"))); return; }
-
-        int slot = e.getRawSlot();
-        if (slot < 0 || slot >= e.getInventory().getSize()) return;
-        int page = slot + 1;
-        boolean unlocked = chests.getOrCreate(gid).isUnlocked(page);
-
-        if (e.getClick() == ClickType.RIGHT && !unlocked) {
-            if (page > 1) {
-                int prevRows = chests.getOrCreate(gid).getRows(page - 1);
-                boolean prevUnlocked = chests.getOrCreate(gid).isUnlocked(page - 1);
-                if (!prevUnlocked || prevRows < 6) {
-                    p.sendMessage(org.haemin.guildPlus.util.Chat.color(
-                            Configs.msg("chest-unlock-require-prev-full").replace("{prev}", String.valueOf(page-1))
-                    ));
-                    SoundUtil.play(p, Configs.gui().getString("chest.selector.sound-deny", ""));
-                    return;
-                }
-            }
-            double cost = Configs.cfg().getDouble("chest.cost.unlock-page", 0D);
-            if (cost > 0 && GuildPlus.get().econ().isReady()) {
-                if (!GuildPlus.get().econ().has(p, cost)) {
-                    p.sendMessage(org.haemin.guildPlus.util.Chat.color(Configs.msg("chest-unlock-page-need-money").replace("{cost}", String.valueOf(cost))));
-                    SoundUtil.play(p, Configs.gui().getString("chest.selector.sound-deny", ""));
-                    return;
-                }
-                if (!GuildPlus.get().econ().withdraw(p, cost)) {
-                    p.sendMessage(org.haemin.guildPlus.util.Chat.color(Configs.msg("withdraw-failed")));
-                    SoundUtil.play(p, Configs.gui().getString("chest.selector.sound-deny", ""));
-                    return;
-                }
-            }
-            chests.getOrCreate(gid).unlockPage(page);
-            p.sendMessage(org.haemin.guildPlus.util.Chat.color(Configs.msg("chest-unlocked-page").replace("{page}", String.valueOf(page))));
-            SoundUtil.play(p, Configs.gui().getString("chest.selector.sound-click", ""));
-            open(p);
-            return;
-        }
-
-        if (e.getClick().isLeftClick() && unlocked) {
-            if (!chests.canOpen(p, gid, page)) { p.sendMessage(Chat.color(Configs.msg("chest-locked"))); return; }
-            play(p, g.getString("chest.selector.sound-click", ""));
-            chests.openPage(p, gid, page);
-        }
-
-        if (e.getClick().isLeftClick() && e.isShiftClick() && unlocked) {
-            int now = chests.getOrCreate(gid).getRows(page);
-            if (now >= 6) { p.sendMessage(Chat.color("&e이미 최대(6줄)입니다.")); return; }
-            double unit = Configs.cfg().getDouble("chest.cost.expand-rows", 0D);
-            double cost = unit;
-            if (cost > 0 && plugin.econ().isReady()) {
-                if (!plugin.econ().has(p, cost)) { p.sendMessage(Chat.color(Configs.msg("chest-expand-need-money").replace("{cost}", String.valueOf(cost)))); return; }
-                if (!plugin.econ().withdraw(p, cost)) { p.sendMessage(Chat.color(Configs.msg("withdraw-failed"))); return; }
-            }
-            chests.getOrCreate(gid).setRows(page, now + 1);
-            p.sendMessage(Chat.color(Configs.msg("chest-expanded-rows").replace("{rows}", String.valueOf(now+1))));
-            play(p, g.getString("chest.selector.sound-click", ""));
-            open(p);
+    private static void ensure(GuildPlus pl) {
+        if (plugin == null) plugin = pl;
+        if (!registered) {
+            Bukkit.getPluginManager().registerEvents(new Clicks(), plugin);
+            registered = true;
         }
     }
 
-    private static Material mat(String s) {
-        Material m = Material.matchMaterial(s);
-        return m != null ? m : Material.BARRIER;
+    private static ItemStack make(ConfigurationSection sec, int page, double cost) {
+        String mat = sec.getString("material","CHEST");
+        String name = sec.getString("name","&a{PAGE}번 창고");
+        List<String> lore = sec.getStringList("lore");
+        ItemStack is = new ItemStack(asMat(mat));
+        ItemMeta im = is.getItemMeta();
+        Map<String,String> vars = new HashMap<>();
+        vars.put("PAGE", String.valueOf(page));
+        vars.put("COST", cost <= 0 ? "무료" : String.format(Locale.ROOT,"%.0f", cost));
+        im.setDisplayName(Chat.color(apply(name, vars)));
+        List<String> out = new ArrayList<>();
+        for (String l : lore) out.add(Chat.color(apply(l, vars)));
+        im.setLore(out);
+        im.addItemFlags(ItemFlag.HIDE_ENCHANTS, ItemFlag.HIDE_ATTRIBUTES);
+        is.setItemMeta(im);
+        return is;
     }
 
-    private static void play(Player p, String soundKey) {
-        if (soundKey == null || soundKey.isEmpty()) return;
-        try { p.playSound(p.getLocation(), Sound.valueOf(soundKey.toUpperCase()), 1f, 1f); } catch (Exception ignored) {}
+    private static Material asMat(String s) {
+        try { return Material.valueOf(s.toUpperCase(Locale.ROOT)); } catch (Throwable t) { return Material.CHEST; }
+    }
+
+    private static String apply(String s, Map<String,String> vars) {
+        String out = s;
+        for (Map.Entry<String,String> e : vars.entrySet()) out = out.replace("{"+e.getKey()+"}", e.getValue());
+        return out;
+    }
+
+    private static final class Holder implements InventoryHolder {
+        final Map<Integer,Integer> pages = new HashMap<>();
+        @Override public Inventory getInventory() { return null; }
+    }
+
+    private static final class Clicks implements Listener {
+        @EventHandler
+        public void onClick(InventoryClickEvent e) {
+            HumanEntity he = e.getWhoClicked();
+            if (!(he instanceof Player)) return;
+            if (!(e.getInventory().getHolder() instanceof Holder)) return;
+            Holder h = (Holder) e.getInventory().getHolder();
+            e.setCancelled(true);
+            Integer page = h.pages.get(e.getRawSlot());
+            if (page == null) return;
+            Player p = (Player) he;
+            String gid = plugin.hook().getGuildId(p);
+            if (gid == null) { p.closeInventory(); p.sendMessage(Configs.msg("no-guild")); SoundUtil.play(p,"gui.chest.deny"); return; }
+            boolean unlocked = plugin.chest().isPageUnlocked(gid, page);
+            ClickType ct = e.getClick();
+            if (unlocked) {
+                if (ct.isShiftClick() && ct.isLeftClick()) {
+                    boolean ok = plugin.chest().tryExpandRows(p, page);
+                    if (ok) SoundUtil.play(p,"gui.chest.click"); else SoundUtil.play(p,"gui.chest.deny");
+                    Bukkit.getScheduler().runTask(plugin, () -> open(plugin, p));
+                } else if (ct.isLeftClick()) {
+                    SoundUtil.play(p,"gui.chest.click");
+                    plugin.chest().open(p, page);
+                } else {
+                    SoundUtil.play(p,"gui.chest.click");
+                }
+            } else {
+                if (ct.isRightClick()) {
+                    int prevRows = page == 1 ? 6 : plugin.chest().getRows(gid, page - 1);
+                    if (page > 1 && prevRows < 6) {
+                        p.sendMessage(Configs.msg("chest-unlock-need-prev-max"));
+                        SoundUtil.play(p,"gui.chest.deny");
+                        return;
+                    }
+                    boolean ok = plugin.chest().tryUnlockPage(p, page);
+                    if (ok) {
+                        SoundUtil.play(p,"gui.chest.unlock");
+                        Bukkit.getScheduler().runTask(plugin, () -> open(plugin, p));
+                    } else {
+                        SoundUtil.play(p,"gui.chest.deny");
+                    }
+                } else {
+                    SoundUtil.play(p,"gui.chest.deny");
+                }
+            }
+        }
     }
 }
